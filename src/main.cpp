@@ -21,6 +21,7 @@
 #if ENABLE_BATT_LED
 #include "battery_led.h"
 #endif
+#include "xbox_mode.h"
 
 // Pico SDK speciifically for waiting on conditions
 #include "pico/critical_section.h"
@@ -44,6 +45,12 @@ critical_section_t report_cs;
 volatile bool report_dirty = false;
 
 void interrupt_loop() {
+    // FIX: Process the Xbox report transmission first to prevent the HID check from returning early
+    if (xbox_mode_active) {
+        xbox_mode_send_report();
+        return;
+    }
+
     if (!tud_hid_ready()) return;
 
     // TODO: Refactor for better code reuse
@@ -55,9 +62,7 @@ void interrupt_loop() {
     }
 
     bool should_send = false;
-    // Local buffer to hold the report data while we prepare it to send. 
     uint8_t safe_report[63];
-
 
     critical_section_enter_blocking(&report_cs);
     if (report_dirty) {
@@ -67,13 +72,10 @@ void interrupt_loop() {
     }
     critical_section_exit(&report_cs);
 
-    // Only send to TinyUSB if we actually grabbed fresh data
     if (should_send) {
         if (!tud_hid_report(0x01, safe_report, 63)) {
             printf("[USBHID] tud_hid_report error\n");
 
-            // If the report failed to queue, restore the dirty flag 
-            // so we try again on the next loop iteration.
             critical_section_enter_blocking(&report_cs);
             report_dirty = true;
             critical_section_exit(&report_cs);
@@ -82,8 +84,14 @@ void interrupt_loop() {
 }
 
 void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
-    // printf("[Main] BT data callback: channel=%u len=%u\n", channel, len);
     if (channel == INTERRUPT && data[1] == 0x31) {
+        xbox_mode_check_combo(data + 3);
+
+        if (xbox_mode_active) {
+            xbox_mode_store_report(data + 3);
+            return;
+        }
+
         if ((data[56] & 1) != (interrupt_in_data[53] & 1)) {
             set_headset(data[56] & 1);
         }
@@ -96,12 +104,6 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
             return;
         }
 
-        // We add the critical section here to avoid any race conditions when writing to the interrupt_in_data buffer,
-        // which is shared between the main loop and this callback. 
-        // The critical section ensures that only one thread can access the buffer at a time, 
-        // preventing data corruption and ensuring thread safety.   
-        // We also set the report_dirty flag to true to indicate that new data is available
-        //  and needs to be sent in the next interrupt report.
         critical_section_enter_blocking(&report_cs);
         memcpy(interrupt_in_data, data + 3, 63);
         report_dirty = true;
@@ -112,9 +114,6 @@ void on_bt_data(CHANNEL_TYPE channel, uint8_t *data, uint16_t len) {
     }
 }
 
-// Invoked when received GET_REPORT control request
-// Application must fill buffer report's content and return its length.
-// Return zero will cause the stack to STALL request
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t *buffer,
                                uint16_t reqlen) {
     (void) itf;
@@ -137,8 +136,8 @@ uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t
 
 bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_request) {
     (void) rhport;
-    uint8_t const itf = tu_u16_low(p_request->wIndex); // wInterface
-    uint8_t const alt = tu_u16_low(p_request->wValue); // bAlternateSetting
+    uint8_t const itf = tu_u16_low(p_request->wIndex); 
+    uint8_t const alt = tu_u16_low(p_request->wValue); 
 
     if (itf == 1) {
         printf("[AUDIO] Set interface Speaker to alternate setting %d\n", alt);
@@ -148,8 +147,6 @@ bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_reques
     return true;
 }
 
-// Invoked when received SET_REPORT control request or
-// received data on OUT endpoint ( Report ID = 0, Type = 0 )
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const *buffer,
                            uint16_t bufsize) {
     (void) itf;
@@ -164,7 +161,6 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
         return;
     }
 
-    // INTERRUPT OUT
     if (report_id == 0) {
         switch (buffer[0]) {
             case 0x02: {
@@ -179,7 +175,6 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
                     reportSeqCounter = 0;
                 }
                 outputData[2] = 0x10;
-                // memcpy(outputData + 3, buffer + 1, bufsize - 1);
                 state_set(outputData + 3,sizeof(SetStateData));
                 bt_write(outputData, sizeof(outputData));
                 break;
@@ -187,7 +182,6 @@ void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t rep
         }
     }
     if (report_id == 0x80 ||
-        // DSE: Write Profile Block
         report_id == 0x60 ||
         report_id == 0x62 ||
         report_id == 0x61) {
@@ -228,7 +222,6 @@ int main() {
 #if !ENABLE_SERIAL
     if (watchdog_caused_reboot()) {
         printf("Rebooted by Watchdog!\n");
-        // 当崩溃重启以后，闪三下灯
         for (int i = 0; i < 6; i++) {
             if (i % 2 == 0) {
                 cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, true);
@@ -242,7 +235,6 @@ int main() {
     }
 #endif
 
-    // Initialize the critical section for the report buffer
     critical_section_init(&report_cs);
 
     config_load();
@@ -263,7 +255,15 @@ int main() {
 #endif
         cyw43_arch_poll();
         tud_task();
-        audio_loop();
+
+        xbox_mode_handle_usb_reinit();
+
+        if (!xbox_mode_active) {
+            audio_loop();
+        } else {
+            xbox_mode_receive_rumble(); // <-- Added processor routing loop step
+        }
+
         interrupt_loop();
 #if ENABLE_BATT_LED
         battery_led_tick();

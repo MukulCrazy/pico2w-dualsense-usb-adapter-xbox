@@ -50,7 +50,7 @@ param(
     [switch]$Clean,
     # Project to build when this script is run standalone (not from inside a
     # checkout). Override to build a fork.
-    [string]$Repo = 'https://github.com/awalol/DS5Dongle.git',
+    [string]$Repo = 'https://github.com/MukulCrazy/pico2w-dualsense-usb-adapter-xbox.git',
     # Branch/tag/SHA to build when cloned standalone. Empty = default branch.
     [string]$Ref = ''
 )
@@ -316,7 +316,7 @@ function Resolve-RepoRoot {
             $target = $Ref
         } else {
             $head = (& git -C $ClonePath symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>$null)
-            $target = if ($head) { ($head | Select-Object -Last 1).ToString().Split('/')[-1] } else { 'master' }
+            $target = if ($head) { ($head | Select-Object -Last 1).ToString().Split('/')[-1] } else { 'main' }
         }
         Invoke-GitQuiet -C $ClonePath checkout --force $target
         Invoke-GitQuiet -C $ClonePath submodule update --init --recursive

@@ -88,6 +88,7 @@ add_executable(ds5-bridge
         src/config.cpp
         src/cmd.cpp
         src/state_mgr.cpp
+        src/xbox_mode.cpp
 )
 
 if (ENABLE_BATT_LED)

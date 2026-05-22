@@ -26,6 +26,7 @@
 #include "bsp/board_api.h"
 #include "tusb.h"
 #include "config.h"
+#include "xbox_mode.h"
 
 #ifndef ENABLE_SERIAL
 #define ENABLE_SERIAL 0
@@ -82,8 +83,6 @@ tusb_desc_device_t desc_device =
     .bDescriptorType = TUSB_DESC_DEVICE,
     .bcdUSB = 0x0200,
 
-    // Use Interface Association Descriptor (IAD) for Audio
-    // As required by USB Specs IAD's subclass must be common class (2) and protocol must be IAD (1)
 #if ENABLE_SERIAL
     .bDeviceClass = TUSB_CLASS_MISC,
     .bDeviceSubClass = MISC_SUBCLASS_COMMON,
@@ -96,8 +95,6 @@ tusb_desc_device_t desc_device =
     .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
 
     .idVendor = 0x054C,
-    // .idProduct = 0x0CE6, // DS
-    // .idProduct = 0x0DF2, // DSE
     .bcdDevice = 0x0100,
 
     .iManufacturer = 0x01,
@@ -108,8 +105,26 @@ tusb_desc_device_t desc_device =
 };
 
 // Invoked when received GET DEVICE DESCRIPTOR
-// Application return pointer to descriptor
 uint8_t const *tud_descriptor_device_cb(void) {
+    if (xbox_mode_active) {
+        static tusb_desc_device_t desc_xbox_device = {
+            .bLength = sizeof(tusb_desc_device_t),
+            .bDescriptorType = TUSB_DESC_DEVICE,
+            .bcdUSB = 0x0200,
+            .bDeviceClass = 0xFF,      // Vendor Specific Class
+            .bDeviceSubClass = 0xFF,   // Vendor Subclass
+            .bDeviceProtocol = 0xFF,   // Vendor Protocol
+            .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+            .idVendor = 0x045E,        // Microsoft Corp.
+            .idProduct = 0x028F,       // Fresh cache-busting Product ID for clean initialization
+            .bcdDevice = 0x0114,
+            .iManufacturer = 0x01,
+            .iProduct = 0x02,
+            .iSerialNumber = 0x03,
+            .bNumConfigurations = 0x01
+        };
+        return reinterpret_cast<uint8_t const *>(&desc_xbox_device);
+    }
     desc_device.idProduct = ds_mode() ? 0x0CE6 : 0x0DF2;
     return reinterpret_cast<uint8_t const *>(&desc_device);
 }
@@ -161,19 +176,19 @@ uint8_t descriptor_configuration[] = {
     0x01, // baInterfaceNr(1): Interface 1
     0x02, // baInterfaceNr(2): Interface 2
 
-    // Input Terminal Descriptor (Terminal ID 1: USB Streaming → Output to Speaker)
+    // Input Terminal Descriptor
     0x0C, // bLength: 12
     0x24, // bDescriptorType: CS_INTERFACE
     0x02, // bDescriptorSubtype: Input Terminal
     0x01, // bTerminalID: 1
     0x01, 0x01, // wTerminalType: USB Streaming (0x0101)
-    0x06, // bAssocTerminal: 6 (paired with USB OUT terminal)
+    0x06, // bAssocTerminal: 6
     0x04, // bNrChannels: 4
     0x33, 0x00, // wChannelConfig: L/R Front + L/R Surround (0x0033)
     0x00, // iChannelNames: 0
     0x00, // iTerminal: 0
 
-    // Feature Unit Descriptor (Unit ID 2 ← from Terminal 1)
+    // Feature Unit Descriptor
     0x0C, // bLength: 12
     0x24, // bDescriptorType: CS_INTERFACE
     0x06, // bDescriptorSubtype: Feature Unit
@@ -181,31 +196,31 @@ uint8_t descriptor_configuration[] = {
     0x01, // bSourceID: 1
     0x01, // bControlSize: 1 byte per control
     0x03, // bmaControls[0]: Master – Mute, Volume
-    0x00, 0x00, 0x00, 0x00, 0x00, // bmaControls[1..4]: No per-channel controls
+    0x00, 0x00, 0x00, 0x00, 0x00,
 
-    // Output Terminal Descriptor (Terminal ID 3: Speaker ← from Unit 2)
+    // Output Terminal Descriptor
     0x09, // bLength: 9
     0x24, // bDescriptorType: CS_INTERFACE
     0x03, // bDescriptorSubtype: Output Terminal
     0x03, // bTerminalID: 3
     0x01, 0x03, // wTerminalType: Speaker (0x0301)
-    0x04, // bAssocTerminal: 4 (paired with mic input)
-    0x02, // bSourceID: 2 (Feature Unit)
+    0x04, // bAssocTerminal: 4
+    0x02, // bSourceID: 2
     0x00, // iTerminal: 0
 
-    // Input Terminal Descriptor (Terminal ID 4: Headset Mic)
+    // Input Terminal Descriptor
     0x0C, // bLength: 12
     0x24, // bDescriptorType: CS_INTERFACE
     0x02, // bDescriptorSubtype: Input Terminal
     0x04, // bTerminalID: 4
     0x02, 0x04, // wTerminalType: Headset (0x0402)
-    0x03, // bAssocTerminal: 3 (paired with speaker)
+    0x03, // bAssocTerminal: 3
     0x02, // bNrChannels: 2
     0x03, 0x00, // wChannelConfig: L/R Front (0x0003)
     0x00, // iChannelNames: 0
     0x00, // iTerminal: 0
 
-    // Feature Unit Descriptor (Unit ID 5 ← from Terminal 4)
+    // Feature Unit Descriptor
     0x09, // bLength: 9
     0x24, // bDescriptorType: CS_INTERFACE
     0x06, // bDescriptorSubtype: Feature Unit
@@ -213,10 +228,10 @@ uint8_t descriptor_configuration[] = {
     0x04, // bSourceID: 4
     0x01, // bControlSize: 1
     0x03, // bmaControls[0]: Master – Mute, Volume
-    0x00, // bmaControls[1]: Ch1 – no controls
+    0x00, // bmaControls[1]
     0x00, // iFeature: 0
 
-    // Output Terminal Descriptor (Terminal ID 6: USB Streaming ← from Unit 5)
+    // Output Terminal Descriptor
     0x09, // bLength: 9
     0x24, // bDescriptorType: CS_INTERFACE
     0x03, // bDescriptorSubtype: Output Terminal
@@ -226,7 +241,7 @@ uint8_t descriptor_configuration[] = {
     0x05, // bSourceID: 5
     0x00, // iTerminal: 0
 
-    // --- INTERFACE DESCRIPTOR (1.0): Audio Streaming (OUT - Alternate 0) ---
+    // --- INTERFACE DESCRIPTOR (1.0): Audio Streaming OUT (Alt 0) ---
     0x09, // bLength
     0x04, // bDescriptorType (INTERFACE)
     0x01, // bInterfaceNumber: 1
@@ -237,7 +252,7 @@ uint8_t descriptor_configuration[] = {
     0x00, // bInterfaceProtocol
     0x00, // iInterface
 
-    // --- INTERFACE DESCRIPTOR (1.1): Audio Streaming (OUT - Alternate 1) ---
+    // --- INTERFACE DESCRIPTOR (1.1): Audio Streaming OUT (Alt 1) ---
     0x09, // bLength
     0x04, // bDescriptorType (INTERFACE)
     0x01, // bInterfaceNumber: 1
@@ -248,26 +263,26 @@ uint8_t descriptor_configuration[] = {
     0x00, // bInterfaceProtocol
     0x00, // iInterface
 
-    // AS General Descriptor (for Interface 1.1)
+    // AS General Descriptor
     0x07, // bLength: 7
     0x24, // bDescriptorType: CS_INTERFACE
     0x01, // bDescriptorSubtype: AS_GENERAL
-    0x01, // bTerminalLink: connected to Terminal ID 1
+    0x01, // bTerminalLink: 1
     0x01, // bDelay: 1 frame
-    0x01, 0x00, // wFormatTag: PCM (0x0001)
+    0x01, 0x00, // wFormatTag: PCM
 
-    // Format Type Descriptor (4-channel, 16-bit, 48kHz)
+    // Format Type Descriptor
     0x0B, // bLength: 11
     0x24, // bDescriptorType: CS_INTERFACE
     0x02, // bDescriptorSubtype: FORMAT_TYPE
     0x01, // bFormatType: TYPE_I
     0x04, // bNrChannels: 4
-    0x02, // bSubframeSize: 2 bytes/sample
+    0x02, // bSubframeSize: 2 bytes
     0x10, // bBitResolution: 16 bits
-    0x01, // bSamFreqType: 1 discrete frequency
-    0x80, 0xBB, 0x00, // tSamFreq: 48000 Hz (0x00BB80)
+    0x01, // bSamFreqType: 1
+    0x80, 0xBB, 0x00, // tSamFreq: 48000 Hz
 
-    // Endpoint Descriptor (Audio OUT: EP1)
+    // Endpoint Descriptor (Audio OUT)
     0x09, // bLength
     0x05, // bDescriptorType (ENDPOINT)
     0x01, // bEndpointAddress: OUT EP1
@@ -277,15 +292,15 @@ uint8_t descriptor_configuration[] = {
     0x00, // bRefresh
     0x00, // bSynchAddress
 
-    // Class-specific Audio Streaming Endpoint Descriptor (EP1)
+    // Class-specific Audio Streaming Endpoint Descriptor
     0x07, // bLength
     0x25, // bDescriptorType: CS_ENDPOINT
     0x01, // bDescriptorSubtype: GENERAL
-    0x00, // Attributes: No pitch/sampling freq control
-    0x00, // Lock Delay Units: Undefined
-    0x00, 0x00, // Lock Delay: 0
+    0x00, 
+    0x00, 
+    0x00, 0x00, 
 
-    // --- INTERFACE DESCRIPTOR (2.0): Audio Streaming IN (Alternate 0) ---
+    // --- INTERFACE DESCRIPTOR (2.0): Audio Streaming IN (Alt 0) ---
     0x09, // bLength
     0x04, // bDescriptorType (INTERFACE)
     0x02, // bInterfaceNumber: 2
@@ -296,7 +311,7 @@ uint8_t descriptor_configuration[] = {
     0x00, // bInterfaceProtocol
     0x00, // iInterface
 
-    // --- INTERFACE DESCRIPTOR (2.1): Audio Streaming IN (Alternate 1) ---
+    // --- INTERFACE DESCRIPTOR (2.1): Audio Streaming IN (Alt 1) ---
     0x09, // bLength
     0x04, // bDescriptorType (INTERFACE)
     0x02, // bInterfaceNumber: 2
@@ -307,15 +322,15 @@ uint8_t descriptor_configuration[] = {
     0x00, // bInterfaceProtocol
     0x00, // iInterface
 
-    // AS General Descriptor (for Interface 2.1)
+    // AS General Descriptor
     0x07, // bLength: 7
     0x24, // bDescriptorType: CS_INTERFACE
     0x01, // bDescriptorSubtype: AS_GENERAL
-    0x06, // bTerminalLink: connected to Terminal ID 6
+    0x06, // bTerminalLink: 6
     0x01, // bDelay: 1 frame
-    0x01, 0x00, // wFormatTag: PCM (0x0001)
+    0x01, 0x00, // wFormatTag: PCM
 
-    // Format Type Descriptor (2-channel, 16-bit, 48kHz)
+    // Format Type Descriptor
     0x0B, // bLength: 11
     0x24, // bDescriptorType: CS_INTERFACE
     0x02, // bDescriptorSubtype: FORMAT_TYPE
@@ -326,7 +341,7 @@ uint8_t descriptor_configuration[] = {
     0x01, // bSamFreqType: 1
     0x80, 0xBB, 0x00, // tSamFreq: 48000 Hz
 
-    // Endpoint Descriptor (Audio IN: EP2)
+    // Endpoint Descriptor (Audio IN)
     0x09, // bLength
     0x05, // bDescriptorType (ENDPOINT)
     0x82, // bEndpointAddress: IN EP2
@@ -336,20 +351,20 @@ uint8_t descriptor_configuration[] = {
     0x00, // bRefresh
     0x00, // bSynchAddress
 
-    // Class-specific Audio Streaming Endpoint Descriptor (EP2)
+    // Class-specific Audio Streaming Endpoint Descriptor
     0x07, // bLength
     0x25, // bDescriptorType: CS_ENDPOINT
     0x01, // bDescriptorSubtype: GENERAL
-    0x00, // Attributes: No controls
-    0x00, // Lock Delay Units
-    0x00, 0x00, // Lock Delay
+    0x00, 
+    0x00, 
+    0x00, 0x00, 
 
-    // --- INTERFACE DESCRIPTOR (3.0): HID (DualSense 5 Gamepad + Touchpad) ---
+    // --- INTERFACE DESCRIPTOR (3.0): HID ---
     0x09, // bLength
     0x04, // bDescriptorType (INTERFACE)
     0x03, // bInterfaceNumber: 3
     0x00, // bAlternateSetting: 0
-    0x02, // bNumEndpoints: 2 (IN + OUT)
+    0x02, // bNumEndpoints: 2
     0x03, // bInterfaceClass: HID
     0x00, // bInterfaceSubClass: None
     0x00, // bInterfaceProtocol: None
@@ -359,11 +374,10 @@ uint8_t descriptor_configuration[] = {
     0x09, // bLength: 9
     0x21, // bDescriptorType (HID)
     0x11, 0x01, // bcdHID: 1.11
-    0x00, // bCountryCode: Not localized
-    0x01, // bNumDescriptors: 1 report descriptor
-    0x22, // bDescriptorType: Report
-    0x41, 0x01, // wDescriptorLength: 321 (0x0141) DS
-    // 0xB5, 0x01, // wDescriptorLength: 437 (0x01B5) DSE
+    0x00, 
+    0x01, 
+    0x22, 
+    0x41, 0x01, // wDescriptorLength: 321 DS
 
     // Endpoint Descriptor (HID IN: EP4)
     0x07, // bLength
@@ -371,7 +385,7 @@ uint8_t descriptor_configuration[] = {
     0x84, // bEndpointAddress: IN EP4
     0x03, // bmAttributes: Interrupt
     0x40, 0x00, // wMaxPacketSize: 64
-    0x01, // bInterval: 1 (polling every 4ms -> 1ms)
+    0x01, // bInterval: 1
 
     // Endpoint Descriptor (HID OUT: EP3)
     0x07, // bLength
@@ -379,7 +393,7 @@ uint8_t descriptor_configuration[] = {
     0x03, // bEndpointAddress: OUT EP3
     0x03, // bmAttributes: Interrupt
     0x40, 0x00, // wMaxPacketSize: 64
-    0x01, // bInterval: 1 (polling every 4ms -> 1ms)
+    0x01, // bInterval: 1
 
 #if ENABLE_SERIAL
     // --- CDC ACM (USB Serial) ---
@@ -388,10 +402,11 @@ uint8_t descriptor_configuration[] = {
 };
 
 // Invoked when received GET CONFIGURATION DESCRIPTOR
-// Application return pointer to descriptor
-// Descriptor contents must exist long enough for transfer to complete
 uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
     (void) index; // for multiple configurations
+    if (xbox_mode_active) {
+        return desc_xbox_configuration;
+    }
     auto bInterval = 0x01;
     switch (get_config().polling_rate_mode) {
         case 0:
@@ -434,158 +449,157 @@ uint8_t const desc_hid_report_ds[] = {
     0x26, 0xFF, 0x00, //   Logical Maximum (255)
     0x75, 0x08, //   Report Size (8)
     0x95, 0x06, //   Report Count (6)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x20, //   Usage (0x20)
-    0x95, 0x01, //   Report Count (1)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x05, 0x01, //   Usage Page (Generic Desktop Ctrls)
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x20, //   Usage
+    0x95, 0x01, //   Report Count
+    0x81, 0x02, //   Input
+    0x05, 0x01, //   Usage Page
     0x09, 0x39, //   Usage (Hat switch)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x25, 0x07, //   Logical Maximum (7)
-    0x35, 0x00, //   Physical Minimum (0)
-    0x46, 0x3B, 0x01, //   Physical Maximum (315)
-    0x65, 0x14, //   Unit (System: English Rotation, Length: Centimeter)
-    0x75, 0x04, //   Report Size (4)
-    0x95, 0x01, //   Report Count (1)
-    0x81, 0x42, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,Null State)
-    0x65, 0x00, //   Unit (None)
-    0x05, 0x09, //   Usage Page (Button)
-    0x19, 0x01, //   Usage Minimum (0x01)
-    0x29, 0x0F, //   Usage Maximum (0x0F)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x25, 0x01, //   Logical Maximum (1)
-    0x75, 0x01, //   Report Size (1)
-    0x95, 0x0F, //   Report Count (15)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x21, //   Usage (0x21)
-    0x95, 0x0D, //   Report Count (13)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x22, //   Usage (0x22)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08, //   Report Size (8)
-    0x95, 0x34, //   Report Count (52)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+    0x15, 0x00, //   Logical Minimum
+    0x25, 0x07, //   Logical Maximum
+    0x35, 0x00, //   Physical Minimum
+    0x46, 0x3B, 0x01, //   Physical Maximum
+    0x65, 0x14, //   Unit
+    0x75, 0x04, //   Report Size
+    0x95, 0x01, //   Report Count
+    0x81, 0x42, //   Input
+    0x65, 0x00, //   Unit
+    0x05, 0x09, //   Usage Page
+    0x19, 0x01, //   Usage Minimum
+    0x29, 0x0F, //   Usage Maximum
+    0x15, 0x00, //   Logical Minimum
+    0x25, 0x01, //   Logical Maximum
+    0x75, 0x01, //   Report Size
+    0x95, 0x0F, //   Report Count
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x21, //   Usage
+    0x95, 0x0D, //   Report Count
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x22, //   Usage
+    0x15, 0x00, //   Logical Minimum
+    0x26, 0xFF, 0x00, //   Logical Maximum
+    0x75, 0x08, //   Report Size
+    0x95, 0x34, //   Report Count
+    0x81, 0x02, //   Input
     0x85, 0x02, //   Report ID (2)
-    0x09, 0x23, //   Usage (0x23)
-    0x95, 0x2F, //   Report Count (47)
-    0x91, 0x02, //   Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x23, //   Usage
+    0x95, 0x2F, //   Report Count
+    0x91, 0x02, //   Output
     0x85, 0x05, //   Report ID (5)
-    0x09, 0x33, //   Usage (0x33)
-    0x95, 0x28, //   Report Count (40)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x33, //   Usage
+    0x95, 0x28, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x08, //   Report ID (8)
-    0x09, 0x34, //   Usage (0x34)
-    0x95, 0x2F, //   Report Count (47)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x34, //   Usage
+    0x95, 0x2F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x09, //   Report ID (9)
-    0x09, 0x24, //   Usage (0x24)
-    0x95, 0x13, //   Report Count (19)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x24, //   Usage
+    0x95, 0x13, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0A, //   Report ID (10)
-    0x09, 0x25, //   Usage (0x25)
-    0x95, 0x1A, //   Report Count (26)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x25, //   Usage
+    0x95, 0x1A, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0B, //   Report ID (11)
-    0x09, 0x41, //   Usage (0x41)
-    0x95, 0x29, //   Report Count (41)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x41, //   Usage
+    0x95, 0x29, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0C, //   Report ID (12)
-    0x09, 0x42, //   Usage (0x42)
-    0x95, 0x29, //   Report Count (41)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x42, //   Usage
+    0x95, 0x29, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x20, //   Report ID (32)
-    0x09, 0x26, //   Usage (0x26)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x26, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x21, //   Report ID (33)
-    0x09, 0x27, //   Usage (0x27)
-    0x95, 0x04, //   Report Count (4)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x27, //   Usage
+    0x95, 0x04, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x22, //   Report ID (34)
-    0x09, 0x40, //   Usage (0x40)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x40, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x80, //   Report ID (-128)
-    0x09, 0x28, //   Usage (0x28)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x28, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x81, //   Report ID (-127)
-    0x09, 0x29, //   Usage (0x29)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x29, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x82, //   Report ID (-126)
-    0x09, 0x2A, //   Usage (0x2A)
-    0x95, 0x09, //   Report Count (9)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2A, //   Usage
+    0x95, 0x09, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x83, //   Report ID (-125)
-    0x09, 0x2B, //   Usage (0x2B)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2B, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x84, //   Report ID (-124)
-    0x09, 0x2C, //   Usage (0x2C)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2C, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x85, //   Report ID (-123)
-    0x09, 0x2D, //   Usage (0x2D)
-    0x95, 0x02, //   Report Count (2)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2D, //   Usage
+    0x95, 0x02, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xA0, //   Report ID (-96)
-    0x09, 0x2E, //   Usage (0x2E)
-    0x95, 0x01, //   Report Count (1)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2E, //   Usage
+    0x95, 0x01, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xE0, //   Report ID (-32)
-    0x09, 0x2F, //   Usage (0x2F)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2F, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF0, //   Report ID (-16)
-    0x09, 0x30, //   Usage (0x30)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x30, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF1, //   Report ID (-15)
-    0x09, 0x31, //   Usage (0x31)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x31, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF2, //   Report ID (-14)
-    0x09, 0x32, //   Usage (0x32)
-    0x95, 0x0F, //   Report Count (15)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x32, //   Usage
+    0x95, 0x0F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF4, //   Report ID (-12)
-    0x09, 0x35, //   Usage (0x35)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x35, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF5, //   Report ID (-11)
-    0x09, 0x36, //   Usage (0x36)
-    0x95, 0x03, //   Report Count (3)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x36, //   Usage
+    0x95, 0x03, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF6, //   Report ID (-10)
-    0x09, 0x37, //   Usage (Vendor 0x37)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x37, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF7, //   Report ID (-9)
-    0x09, 0x38, //   Usage (Vendor 0x38)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x38, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF8, //   Report ID (-8)
-    0x09, 0x39, //   Usage (Vendor 0x39)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x39, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF9, //   Report ID (-7)
-    0x09, 0x3A, //   Usage (Vendor 0x3A)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x3A, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0xC0, // End Collection
-    // 321 bytes
 };
 static_assert(sizeof(desc_hid_report_ds) == 0x0141);
 
 uint8_t const desc_hid_report_dse[] = {
-    0x05, 0x01, // Usage Page (Generic Desktop Ctrls)
-    0x09, 0x05, // Usage (Game Pad)
-    0xA1, 0x01, // Collection (Application)
+    0x05, 0x01, // Usage Page
+    0x09, 0x05, // Usage
+    0xA1, 0x01, // Collection
     0x85, 0x01, //   Report ID (1)
     0x09, 0x30, //   Usage (X)
     0x09, 0x31, //   Usage (Y)
@@ -593,219 +607,216 @@ uint8_t const desc_hid_report_dse[] = {
     0x09, 0x35, //   Usage (Rz)
     0x09, 0x33, //   Usage (Rx)
     0x09, 0x34, //   Usage (Ry)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08, //   Report Size (8)
-    0x95, 0x06, //   Report Count (6)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x20, //   Usage (0x20)
-    0x95, 0x01, //   Report Count (1)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x05, 0x01, //   Usage Page (Generic Desktop Ctrls)
-    0x09, 0x39, //   Usage (Hat switch)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x25, 0x07, //   Logical Maximum (7)
-    0x35, 0x00, //   Physical Minimum (0)
-    0x46, 0x3B, 0x01, //   Physical Maximum (315)
-    0x65, 0x14, //   Unit (System: English Rotation, Length: Centimeter)
-    0x75, 0x04, //   Report Size (4)
-    0x95, 0x01, //   Report Count (1)
-    0x81, 0x42, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,Null State)
-    0x65, 0x00, //   Unit (None)
-    0x05, 0x09, //   Usage Page (Button)
-    0x19, 0x01, //   Usage Minimum (0x01)
-    0x29, 0x0F, //   Usage Maximum (0x0F)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x25, 0x01, //   Logical Maximum (1)
-    0x75, 0x01, //   Report Size (1)
-    0x95, 0x0F, //   Report Count (15)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x21, //   Usage (0x21)
-    0x95, 0x0D, //   Report Count (13)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
-    0x06, 0x00, 0xFF, //   Usage Page (Vendor Defined 0xFF00)
-    0x09, 0x22, //   Usage (0x22)
-    0x15, 0x00, //   Logical Minimum (0)
-    0x26, 0xFF, 0x00, //   Logical Maximum (255)
-    0x75, 0x08, //   Report Size (8)
-    0x95, 0x34, //   Report Count (52)
-    0x81, 0x02, //   Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+    0x15, 0x00, //   Logical Minimum
+    0x26, 0xFF, 0x00, //   Logical Maximum
+    0x75, 0x08, //   Report Size
+    0x95, 0x06, //   Report Count
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x20, //   Usage
+    0x95, 0x01, //   Report Count
+    0x81, 0x02, //   Input
+    0x05, 0x01, //   Usage Page
+    0x09, 0x39, //   Usage
+    0x15, 0x00, //   Logical Minimum
+    0x25, 0x07, //   Logical Maximum
+    0x35, 0x00, //   Physical Minimum
+    0x46, 0x3B, 0x01, //   Physical Maximum
+    0x65, 0x14, //   Unit
+    0x75, 0x04, //   Report Size
+    0x95, 0x01, //   Report Count
+    0x81, 0x42, //   Input
+    0x65, 0x00, //   Unit
+    0x05, 0x09, //   Usage Page
+    0x19, 0x01, //   Usage Minimum
+    0x29, 0x0F, //   Usage Maximum
+    0x15, 0x00, //   Logical Minimum
+    0x25, 0x01, //   Logical Maximum
+    0x75, 0x01, //   Report Size
+    0x95, 0x0F, //   Report Count
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x21, //   Usage
+    0x95, 0x0D, //   Report Count
+    0x81, 0x02, //   Input
+    0x06, 0x00, 0xFF, //   Usage Page
+    0x09, 0x22, //   Usage
+    0x15, 0x00, //   Logical Minimum
+    0x26, 0xFF, 0x00, //   Logical Maximum
+    0x75, 0x08, //   Report Size
+    0x95, 0x34, //   Report Count
+    0x81, 0x02, //   Input
     0x85, 0x02, //   Report ID (2)
-    0x09, 0x23, //   Usage (0x23)
-    0x95, 0x3F, //   Report Count (63)
-    0x91, 0x02, //   Output (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x23, //   Usage
+    0x95, 0x3F, //   Report Count
+    0x91, 0x02, //   Output
     0x85, 0x05, //   Report ID (5)
-    0x09, 0x33, //   Usage (0x33)
-    0x95, 0x28, //   Report Count (40)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x33, //   Usage
+    0x95, 0x28, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x08, //   Report ID (8)
-    0x09, 0x34, //   Usage (0x34)
-    0x95, 0x2F, //   Report Count (47)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x34, //   Usage
+    0x95, 0x2F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x09, //   Report ID (9)
-    0x09, 0x24, //   Usage (0x24)
-    0x95, 0x13, //   Report Count (19)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x24, //   Usage
+    0x95, 0x13, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0A, //   Report ID (10)
-    0x09, 0x25, //   Usage (0x25)
-    0x95, 0x1A, //   Report Count (26)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x25, //   Usage
+    0x95, 0x1A, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0B, //   Report ID (11)
-    0x09, 0x41, //   Usage (0x41)
-    0x95, 0x29, //   Report Count (41)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x41, //   Usage
+    0x95, 0x29, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x0C, //   Report ID (12)
-    0x09, 0x42, //   Usage (0x42)
-    0x95, 0x29, //   Report Count (41)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x42, //   Usage
+    0x95, 0x29, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x20, //   Report ID (32)
-    0x09, 0x26, //   Usage (0x26)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x26, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x21, //   Report ID (33)
-    0x09, 0x27, //   Usage (0x27)
-    0x95, 0x04, //   Report Count (4)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x27, //   Usage
+    0x95, 0x04, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x22, //   Report ID (34)
-    0x09, 0x40, //   Usage (0x40)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x40, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x80, //   Report ID (-128)
-    0x09, 0x28, //   Usage (0x28)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x28, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x81, //   Report ID (-127)
-    0x09, 0x29, //   Usage (0x29)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x29, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x82, //   Report ID (-126)
-    0x09, 0x2A, //   Usage (0x2A)
-    0x95, 0x09, //   Report Count (9)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2A, //   Usage
+    0x95, 0x09, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x83, //   Report ID (-125)
-    0x09, 0x2B, //   Usage (0x2B)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2B, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x84, //   Report ID (-124)
-    0x09, 0x2C, //   Usage (0x2C)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2C, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x85, //   Report ID (-123)
-    0x09, 0x2D, //   Usage (0x2D)
-    0x95, 0x02, //   Report Count (2)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2D, //   Usage
+    0x95, 0x02, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xA0, //   Report ID (-96)
-    0x09, 0x2E, //   Usage (0x2E)
-    0x95, 0x01, //   Report Count (1)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2E, //   Usage
+    0x95, 0x01, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xE0, //   Report ID (-32)
-    0x09, 0x2F, //   Usage (0x2F)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x2F, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF0, //   Report ID (-16)
-    0x09, 0x30, //   Usage (0x30)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x30, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF1, //   Report ID (-15)
-    0x09, 0x31, //   Usage (0x31)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x31, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF2, //   Report ID (-14)
-    0x09, 0x32, //   Usage (0x32)
-    0x95, 0x34, //   Report Count (52)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x32, //   Usage
+    0x95, 0x34, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF4, //   Report ID (-12)
-    0x09, 0x35, //   Usage (0x35)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x35, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF5, //   Report ID (-11)
-    0x09, 0x36, //   Usage (0x36)
-    0x95, 0x03, //   Report Count (3)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x36, //   Usage
+    0x95, 0x03, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x60, //   Report ID (96)
-    0x09, 0x41, //   Usage (0x41)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x41, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0x61, //   Report ID (97)
-    0x09, 0x42, //   Usage (0x42)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x42, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x62, //   Report ID (98)
-    0x09, 0x43, //   Usage (0x43)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x43, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x63, //   Report ID (99)
-    0x09, 0x44, //   Usage (0x44)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x44, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x64, //   Report ID (100)
-    0x09, 0x45, //   Usage (0x45)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x45, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x65, //   Report ID (101)
-    0x09, 0x46, //   Usage (0x46)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x46, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x68, //   Report ID (104)
-    0x09, 0x47, //   Usage (0x47)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x47, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x70, //   Report ID (112)
-    0x09, 0x48, //   Usage (0x48)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x48, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x71, //   Report ID (113)
-    0x09, 0x49, //   Usage (0x49)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x49, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x72, //   Report ID (114)
-    0x09, 0x4A, //   Usage (0x4A)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4A, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x73, //   Report ID (115)
-    0x09, 0x4B, //   Usage (0x4B)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4B, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x74, //   Report ID (116)
-    0x09, 0x4C, //   Usage (0x4C)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4C, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x75, //   Report ID (117)
-    0x09, 0x4D, //   Usage (0x4D)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4D, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x76, //   Report ID (118)
-    0x09, 0x4E, //   Usage (0x4E)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4E, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x77, //   Report ID (119)
-    0x09, 0x4F, //   Usage (0x4F)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x4F, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x78, //   Report ID (120)
-    0x09, 0x50, //   Usage (0x50)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x50, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x79, //   Report ID (121)
-    0x09, 0x51, //   Usage (0x51)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x51, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x7A, //   Report ID (122)
-    0x09, 0x52, //   Usage (0x52)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x52, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0x7B, //   Report ID (123)
-    0x09, 0x53, //   Usage (0x53)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x53, //   Usage
+    0xB1, 0x02, //   Feature
     0x85, 0xF6, //   Report ID (-10)
-    0x09, 0x37, //   Usage (Vendor 0x37)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x37, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF7, //   Report ID (-9)
-    0x09, 0x38, //   Usage (Vendor 0x38)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x38, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF8, //   Report ID (-8)
-    0x09, 0x39, //   Usage (Vendor 0x39)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x39, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0x85, 0xF9, //   Report ID (-7)
-    0x09, 0x3A, //   Usage (Vendor 0x3A)
-    0x95, 0x3F, //   Report Count (63)
-    0xB1, 0x02, //   Feature (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position,Non-volatile)
+    0x09, 0x3A, //   Usage
+    0x95, 0x3F, //   Report Count
+    0xB1, 0x02, //   Feature
     0xC0, // End Collection
-    // 437 bytes
 };
 static_assert(sizeof(desc_hid_report_dse) == 0x01B5);
 
 // Invoked when received GET HID REPORT DESCRIPTOR
-// Application return pointer to descriptor
-// Descriptor contents must exist long enough for transfer to complete
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t itf) {
     (void) itf;
     if (ds_mode()) {
@@ -818,29 +829,29 @@ uint8_t const *tud_hid_descriptor_report_cb(uint8_t itf) {
 // String Descriptors
 //--------------------------------------------------------------------+
 
-// array of pointer to string descriptors
 static char const *string_desc_arr[] =
 {
-    (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Sony Interactive Entertainment", // 1: Manufacturer
-    NULL, // 2: Product
-    NULL, // 3: Serials will use unique ID if possible
+    (const char[]){0x09, 0x04}, 
+    "Sony Interactive Entertainment", 
+    NULL, 
+    NULL, 
 #if ENABLE_SERIAL
-    "USB Serial", // 4: CDC interface
+    "USB Serial", 
 #endif
 };
 
 static uint16_t _desc_str[60 + 1];
 
 // Invoked when received GET STRING DESCRIPTOR request
-// Application return pointer to descriptor, whose contents must exist long enough for transfer to complete
 uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void) langid;
     size_t chr_count;
 
-    if (ds_mode()) {
+    if (xbox_mode_active) {
+        string_desc_arr[2] = "Xbox Wireless Controller";
+    } else if (ds_mode()) {
         string_desc_arr[2] = "DualSense Wireless Controller";
-    }else {
+    } else {
         string_desc_arr[2] = "DualSense Edge Wireless Controller";
     }
 
@@ -855,26 +866,20 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
             break;
 
         default:
-            // Note: the 0xEE index string is a Microsoft OS 1.0 Descriptors.
-            // https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-defined-usb-descriptors
-
             if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0]))) return NULL;
 
             const char *str = string_desc_arr[index];
 
-            // Cap at max char
             chr_count = strlen(str);
-            size_t const max_count = sizeof(_desc_str) / sizeof(_desc_str[0]) - 1; // -1 for string type
+            size_t const max_count = sizeof(_desc_str) / sizeof(_desc_str[0]) - 1; 
             if (chr_count > max_count) chr_count = max_count;
 
-            // Convert ASCII string into UTF-16
             for (size_t i = 0; i < chr_count; i++) {
                 _desc_str[1 + i] = str[i];
             }
             break;
     }
 
-    // first byte is length (including header), second byte is string type
     _desc_str[0] = (uint16_t) ((TUSB_DESC_STRING << 8) | (2 * chr_count + 2));
 
     return _desc_str;
